@@ -1,0 +1,336 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  avatar        String?   // URL to avatar image
+  
+  // Subscription & Limits
+  plan          PlanType  @default(FREE)
+  projectsCount Int       @default(0)
+  storageUsed   BigInt    @default(0) // in bytes
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  
+  // Relations
+  projects      Project[]
+  figmaTokens   FigmaToken[]
+  apiKeys       ApiKey[]
+  
+  @@index([email])
+}
+
+enum PlanType {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+// ============================================
+// PROJECTS & DESIGN FILES
+// ============================================
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Project Details
+  name        String
+  description String?       @db.Text
+  slug        String        @unique
+  
+  // Source Information
+  sourceType  SourceType
+  sourceData  Json          // Flexible storage for file URLs or Figma data
+  
+  // Processing Status
+  status      ProjectStatus @default(PENDING)
+  progress    Int           @default(0) // 0-100
+  errorMsg    String?       @db.Text
+  
+  // Metadata
+  thumbnail   String?       // Generated thumbnail
+  fileSize    BigInt?       // in bytes
+  dimensions  Json?         // { width, height }
+  
+  // Timestamps
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  publishedAt DateTime?
+  
+  // Relations
+  designFiles DesignFile[]
+  analysis    Analysis?
+  caseStudy   CaseStudy?
+  
+  @@index([userId])
+  @@index([status])
+  @@index([slug])
+}
+
+enum SourceType {
+  UPLOAD      // User uploaded file
+  FIGMA       // Imported from Figma
+  URL         // Imported from URL
+}
+
+enum ProjectStatus {
+  PENDING     // Just created
+  UPLOADING   // File upload in progress
+  PROCESSING  // AI analysis in progress
+  COMPLETED   // Case study ready
+  FAILED      // Processing failed
+  ARCHIVED    // User archived
+}
+
+model DesignFile {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // File Information
+  filename   String
+  fileType   String   // png, jpg, pdf, svg, figma
+  fileUrl    String   // Supabase storage URL
+  fileSize   BigInt   // in bytes
+  
+  // Image Metadata
+  width      Int?
+  height     Int?
+  format     String?
+  
+  // Processing
+  processed  Boolean  @default(false)
+  
+  createdAt  DateTime @default(now())
+  
+  @@index([projectId])
+}
+
+// ============================================
+// AI ANALYSIS RESULTS
+// ============================================
+
+model Analysis {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Visual Analysis
+  colorPalette    Json    // Array of { hex, name, usage, percentage }
+  typography      Json    // { headings, body, fonts }
+  layout          Json    // { type, grid, spacing }
+  components      Json    // Identified UI components
+  
+  // Design System
+  designSystem    String? // Material, Ant, Bootstrap, Custom, etc.
+  framework       String? // React, Vue, Angular, etc.
+  
+  // UX Analysis
+  uxPatterns      Json    // Identified UX patterns
+  accessibility   Json    // A11y score and issues
+  responsive      Boolean @default(false)
+  
+  // Research Data
+  industry        String?
+  competitors     Json    // Array of competitor analysis
+  trends          Json    // Current design trends
+  
+  // AI Insights
+  strengths       Json    // Array of design strengths
+  improvements    Json    // Suggested improvements
+  uniqueness      Int     @default(50) // 1-100 score
+  
+  // Metadata
+  aiModel         String  // Model used for analysis
+  tokensUsed      Int     @default(0)
+  processingTime  Int     @default(0) // in seconds
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([projectId])
+}
+
+// ============================================
+// CASE STUDY
+// ============================================
+
+model CaseStudy {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Content Sections
+  title       String
+  subtitle    String?  @db.Text
+  overview    String   @db.Text
+  challenge   String?  @db.Text
+  solution    String?  @db.Text
+  impact      String?  @db.Text
+  
+  // Rich Content
+  sections    Json     // Custom sections array
+  highlights  Json     // Key highlights/metrics
+  testimonial Json?    // Client testimonial
+  
+  // 3D Template
+  templateId  String
+  template    Template @relation(fields: [templateId], references: [id])
+  customStyle Json?    // Template customizations
+  
+  // Media
+  coverImage  String?
+  images      Json     // Array of image URLs
+  videos      Json?    // Array of video URLs
+  
+  // SEO & Sharing
+  metaTitle       String?
+  metaDescription String?  @db.Text
+  ogImage         String?
+  published       Boolean  @default(false)
+  slug            String   @unique
+  
+  // Analytics
+  views           Int      @default(0)
+  likes           Int      @default(0)
+  shares          Int      @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  publishedAt     DateTime?
+  
+  @@index([projectId])
+  @@index([slug])
+  @@index([published])
+}
+
+// ============================================
+// 3D TEMPLATES
+// ============================================
+
+model Template {
+  id          String   @id @default(cuid())
+  
+  // Template Info
+  name        String
+  slug        String   @unique
+  description String   @db.Text
+  category    String   // minimal, immersive, portfolio, showcase
+  
+  // Preview
+  thumbnail   String
+  demoUrl     String?
+  
+  // Configuration
+  config      Json     // Default template settings
+  features    Json     // Array of features
+  
+  // Availability
+  isPremium   Boolean  @default(false)
+  isPublic    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  
+  // Usage Stats
+  usageCount  Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  caseStudies CaseStudy[]
+  
+  @@index([slug])
+  @@index([isPublic])
+}
+
+// ============================================
+// EXTERNAL INTEGRATIONS
+// ============================================
+
+model FigmaToken {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime
+  
+  // Figma User Info
+  figmaUserId  String?
+  figmaEmail   String?
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  @@index([userId])
+  @@unique([userId, figmaUserId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String   // User-friendly name
+  key         String   @unique // Hashed API key
+  keyPrefix   String   // First 8 chars for display
+  
+  permissions Json     // Array of permissions
+  
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([key])
+}
+
+// ============================================
+// SYSTEM & ANALYTICS
+// ============================================
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  
+  level     LogLevel
+  service   String   // api, worker, analysis
+  action    String
+  message   String   @db.Text
+  metadata  Json?
+  
+  userId    String?
+  projectId String?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([level])
+  @@index([service])
+  @@index([createdAt])
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+  DEBUG
+}
